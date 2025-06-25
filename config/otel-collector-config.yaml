@@ -1,6 +1,4 @@
-# otel-collector-config.yaml
 receivers:
-  # Receive metrics from FastAPI via OTLP
   otlp:
     protocols:
       grpc:
@@ -9,12 +7,9 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
-  # Batch for efficiency
   batch:
     timeout: 1s
     send_batch_size: 1024
-
-  # Add environment info
   resource:
     attributes:
       - key: environment
@@ -23,30 +18,43 @@ processors:
       - key: deployment
         value: docker-compose
         action: upsert
+  memory_limiter:
+    limit_mib: 256
+    check_interval: 1s
 
 exporters:
-  # Export metrics to Prometheus format
   prometheus:
     endpoint: "0.0.0.0:8889"
     namespace: "fastapi"
     const_labels:
       environment: "dev"
       service_type: "web_api"
-
-  # Debug logging (optional - to see what's flowing through)
+  otlp/tempo:
+    endpoint: http://tempo:4317
+    tls:
+      insecure: true
+  loki:
+    endpoint: "http://loki:3100/loki/api/v1/push"
+    default_labels_enabled:
+      exporter: false
+      job: true
   logging:
-    loglevel: info
-    sampling_initial: 5
-    sampling_thereafter: 200
+    verbosity: normal
 
 service:
   pipelines:
-    # Only metrics pipeline for now
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlp/tempo, logging]
     metrics:
       receivers: [otlp]
-      processors: [batch, resource]
+      processors: [memory_limiter, batch, resource]
       exporters: [prometheus, logging]
-
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [loki, logging]
   extensions: [health_check]
 
 extensions:
